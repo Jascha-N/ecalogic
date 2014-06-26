@@ -162,7 +162,7 @@ class DefaultErrorHandler(maxErrorCount: Int = 10,
         writer.printf("%n    %" + n + "s%n", "^")
       }
     }
-    if (!stackTrace.isEmpty) {
+    if (stackTrace.nonEmpty) {
       writer.println("Stacktrace:")
       stackTrace.foreach { case (name, position) =>
         writer.println(s"    $name${position.fold("")(p => s" [$p]")}")
@@ -205,7 +205,9 @@ class DefaultErrorHandler(maxErrorCount: Int = 10,
   * @author Jascha Neutelings
   */
 class CachingErrorHandler(val output: ErrorHandler = new DefaultErrorHandler) extends ErrorHandler {
-  private val errors = mutable.PriorityQueue.empty[(ECAException, Boolean)]
+  private val errors = mutable.PriorityQueue.empty(new Ordering[(ECAException, Boolean)] {
+    override def compare(x: (ECAException, Boolean), y: (ECAException, Boolean)) = x._1.compare(y._1)
+  })
 
   def reset() {
     errors.clear()

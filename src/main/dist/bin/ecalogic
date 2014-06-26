@@ -1,0 +1,92 @@
+#!/bin/bash
+
+findHome () {
+  # see SI-2092 and SI-5792
+  local source="${BASH_SOURCE[0]}"
+  while [ -h "$source" ] ; do
+    local linked="$(readlink "$source")"
+    local dir="$( cd -P $(dirname "$source") && cd -P $(dirname "$linked") && pwd )"
+    source="$dir/$(basename "$linked")"
+  done
+  ( cd -P "$(dirname "$source")/.." && pwd )
+}
+
+unset cygwin
+if uname | grep -q ^CYGWIN; then
+  cygwin="$(uname)"
+fi
+
+unset mingw
+if uname | grep -q ^MINGW; then
+  mingw="$(uname)"
+fi
+
+# Finding the root folder for this ecalogic distribution
+ECALOGIC_HOME="$(findHome)"
+SEP=":"
+
+# Remove spaces from ECALOGIC_HOME on windows
+if [[ -n "$cygwin" ]]; then
+  ECALOGIC_HOME="$(shome="$(cygpath --windows --short-name "$ECALOGIC_HOME")" ; cygpath --unix "$shome")"
+# elif uname |grep -q ^MINGW; then
+#   SEP=";"
+fi
+
+# Constructing the classpath
+CLASSPATH="$ECALOGIC_HOME/conf"
+for ext in "$ECALOGIC_HOME"/lib/* ; do
+  CLASSPATH="${CLASSPATH}${SEP}${ext}"
+done
+
+if [[ -n "$cygwin" ]]; then
+  if [[ "$OS" = "Windows_NT" ]] && cygpath -m .>/dev/null 2>/dev/null ; then
+    format=mixed
+  else
+    format=windows
+  fi
+  ECALOGIC_HOME="$(cygpath --$format "$ECALOGIC_HOME")"
+  if [[ -n "$JAVA_HOME" ]]; then
+    JAVA_HOME="$(cygpath --$format "$JAVA_HOME")"
+  fi
+  CLASSPATH="$(cygpath --path --$format "$CLASSPATH")"
+elif [[ -n "$mingw" ]]; then
+  ECALOGIC_HOME="$(cmd //c echo "$ECALOGIC_HOME")"
+  CLASSPATH="$(cmd //c echo "$CLASSPATH")"
+fi
+
+[[ -n "$JAVA_OPTS" ]] || JAVA_OPTS="-Xmx256M -Xms32M"
+
+# break out -D and -J options and add them to JAVA_OPTS as well
+# so they reach the underlying JVM in time to do some good.  The
+# -D options will be available as system properties.
+declare -a java_args
+declare -a program_args
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -D*)
+      java_args=("${java_args[@]}" "$1")
+      shift
+      ;;
+    -J*)
+      java_args=("${java_args[@]}" "${1:2}")
+      shift
+      ;;
+    *)
+      program_args=("${program_args[@]}" "$1")
+      shift
+      ;;
+  esac
+done
+
+# reset "$@" to the remaining args
+set -- "${program_args[@]}"
+
+if [[ -z "$JAVACMD" && -n "$JAVA_HOME" && -x "$JAVA_HOME/bin/java" ]]; then
+    JAVACMD="$JAVA_HOME/bin/java"
+fi
+
+# note that variables which may intentionally be empty must not
+# be quoted: otherwise an empty string will appear as a command line
+# argument, and java will think that is the program to run.
+"${JAVACMD:=java}" $JAVA_OPTS "${java_args[@]}" -cp "$CLASSPATH" -Decalogic.home="$ECALOGIC_HOME" nl.ru.cs.ecalogic.ECALogic "$@"
